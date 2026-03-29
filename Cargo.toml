@@ -1,0 +1,20 @@
+[package]
+name = "mega-obj-soaker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rebar = { path = "../rebar/crates/rebar" }
+rebar-core = { path = "../rebar/crates/rebar-core" }
+aws-sdk-s3 = "1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-credential-types = "1"
+aws-types = "1"
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+glob-match = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+filetime = "0.2"
+async-trait = "0.1"
+rmpv = "1"

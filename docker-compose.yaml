@@ -1,0 +1,34 @@
+version: '3'
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.73
+    ports:
+      - "8333:8333"  # S3 API
+      - "9333:9333"  # Master
+      - "8080:8080"  # Volume
+      - "8888:8888"  # Filer
+    command: "server -s3 -volume.max=5 -master.volumeSizeLimitMB=1024"
+
+  test-runner:
+    build:
+      context: ..
+      dockerfile: mega-obj-soaker/Dockerfile
+    volumes:
+      - /tmp:/tmp
+    depends_on:
+      - seaweedfs
+    environment:
+      - MIN_PROCESSES=2
+      - MAX_PROCESSES=10
+      - MAX_SPEED=200
+      - OPTIMIZATION_INTERVAL=1
+      - MAX_RETRIES=3
+      - RETRY_DELAY=1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["echo 'Build complete. Use run_tests.sh to run tests.'"]
+
+networks:
+  default:
+    name: seaweedfs-network
