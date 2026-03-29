@@ -65,6 +65,28 @@ graph TD
 4. If speed plateaued or decreased, holds steady — workers are never scaled down
 5. Exits when all tasks are complete
 
+## Benchmark
+
+Tested against a local SeaweedFS instance — 100 x 10MB files (1GB total), `MAX_PROCESSES=16`, 3 runs each. Filesystem caches dropped between runs.
+
+| Tool | Best | Avg | Best MB/s | Avg MB/s |
+|------|------|-----|-----------|----------|
+| AWS S3 CLI (`aws s3 sync`) | 5.33s | 6.88s | 187.6 | 145.3 |
+| super-obj-soaker (Python) | 5.33s | 6.21s | 187.6 | 161.0 |
+| **mega-obj-soaker (Rust)** | **4.14s** | **4.15s** | **241.5** | **241.0** |
+
+```mermaid
+xychart-beta
+    title "Download Throughput (MB/s) — Higher is Better"
+    x-axis ["AWS S3 CLI", "super-obj-soaker", "mega-obj-soaker"]
+    y-axis "MB/s" 0 --> 280
+    bar [145.3, 161.0, 241.0]
+```
+
+**mega-obj-soaker** is **29% faster** than super-obj-soaker and **22% faster** than the AWS CLI at peak, with near-zero variance across runs (4.14s, 4.15s, 4.16s) compared to the high jitter seen in Python (5.33–7.93s) and the CLI (5.33–8.79s).
+
+See [`benchmark/`](benchmark/) for the full reproducible benchmark script and methodology.
+
 ## Installation
 
 ### From Release
@@ -171,6 +193,9 @@ mega-obj-soaker/
 ├── Dockerfile
 ├── docker-compose.yaml
 ├── run_tests.sh
+├── benchmark/
+│   ├── README.md         # Benchmark methodology and options
+│   └── run.sh            # Reproducible benchmark script
 └── src/
     ├── main.rs          # CLI entry point, rebar runtime bootstrap
     ├── config.rs         # Environment variable parsing
