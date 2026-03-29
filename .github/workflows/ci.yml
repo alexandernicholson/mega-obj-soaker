@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Check & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mega-obj-soaker
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alexandernicholson/rebar
+          path: rebar
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup component add clippy
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            mega-obj-soaker/target
+          key: check-${{ runner.os }}-${{ hashFiles('mega-obj-soaker/Cargo.lock') }}
+          restore-keys: check-${{ runner.os }}-
+
+      - name: Cargo check
+        working-directory: mega-obj-soaker
+        run: cargo check --release
+
+      - name: Clippy pedantic
+        working-directory: mega-obj-soaker
+        run: cargo clippy -p mega-obj-soaker -- -W clippy::pedantic
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mega-obj-soaker
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alexandernicholson/rebar
+          path: rebar
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            mega-obj-soaker/target
+          key: test-${{ runner.os }}-${{ hashFiles('mega-obj-soaker/Cargo.lock') }}
+          restore-keys: test-${{ runner.os }}-
+
+      - name: Run tests
+        working-directory: mega-obj-soaker
+        run: cargo test
+
+  create-release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub release
+        run: gh release create "${{ github.ref_name }}" --generate-notes --draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  release:
+    name: Release ${{ matrix.target }}
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [create-release]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: mega-obj-soaker
+            archive: mega-obj-soaker-x86_64-linux.tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            binary: mega-obj-soaker
+            archive: mega-obj-soaker-aarch64-linux.tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-13
+            binary: mega-obj-soaker
+            archive: mega-obj-soaker-x86_64-macos.tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            binary: mega-obj-soaker
+            archive: mega-obj-soaker-aarch64-macos.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mega-obj-soaker
+
+      - uses: actions/checkout@v4
+        with:
+          repository: alexandernicholson/rebar
+          path: rebar
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          mkdir -p mega-obj-soaker/.cargo
+          printf '[target.aarch64-unknown-linux-gnu]\nlinker = "aarch64-linux-gnu-gcc"\n' > mega-obj-soaker/.cargo/config.toml
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            mega-obj-soaker/target
+          key: release-${{ matrix.target }}-${{ hashFiles('mega-obj-soaker/Cargo.lock') }}
+          restore-keys: release-${{ matrix.target }}-
+
+      - name: Build release binary
+        working-directory: mega-obj-soaker
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package archive
+        working-directory: mega-obj-soaker
+        run: |
+          tar czf ${{ matrix.archive }} -C target/${{ matrix.target }}/release ${{ matrix.binary }}
+          if command -v sha256sum &> /dev/null; then
+            sha256sum ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+          else
+            shasum -a 256 ${{ matrix.archive }} > ${{ matrix.archive }}.sha256
+          fi
+
+      - name: Upload release artifact
+        working-directory: mega-obj-soaker
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            "${{ matrix.archive }}" \
+            "${{ matrix.archive }}.sha256" \
+            --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
