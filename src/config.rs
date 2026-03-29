@@ -40,8 +40,7 @@ impl Config {
                 .unwrap_or(5.0),
             verify_ssl: env::var("S3_VERIFY_SSL")
                 .ok()
-                .map(|v| v.to_lowercase() == "true")
-                .unwrap_or(true),
+                .is_none_or(|v| v.to_lowercase() == "true"),
         }
     }
 }

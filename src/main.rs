@@ -15,7 +15,7 @@ use crate::config::Config;
 #[derive(Parser, Debug)]
 #[command(name = "mega-obj-soaker", about = "S3 Optimized Downloader")]
 struct Cli {
-    /// Source S3 URI (s3://bucket/prefix)
+    /// Source S3 URI (`s3://bucket/prefix`)
     source: String,
 
     /// Destination local path
@@ -55,7 +55,7 @@ fn main() {
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_new(format!("mega_obj_soaker={}", filter))
+            EnvFilter::try_new(format!("mega_obj_soaker={filter}"))
                 .unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .with_target(false)

@@ -10,9 +10,9 @@ use crate::s3::S3Object;
 
 #[derive(Debug)]
 pub enum CoordinatorCall {
-    GetTask,
-    GetStats,
-    GetProgress,
+    Task,
+    Stats,
+    Progress,
 }
 
 #[derive(Debug)]
@@ -75,7 +75,7 @@ impl GenServer for Coordinator {
         _ctx: &GenServerContext,
     ) -> Self::Reply {
         match msg {
-            CoordinatorCall::GetTask => {
+            CoordinatorCall::Task => {
                 if state.next_task < state.tasks.len() {
                     let obj = state.tasks[state.next_task].clone();
                     state.next_task += 1;
@@ -84,12 +84,12 @@ impl GenServer for Coordinator {
                     CoordinatorReply::Task(None)
                 }
             }
-            CoordinatorCall::GetStats => {
+            CoordinatorCall::Stats => {
                 let bytes = state.downloaded_bytes;
                 state.downloaded_bytes = 0;
                 CoordinatorReply::Stats { bytes }
             }
-            CoordinatorCall::GetProgress => CoordinatorReply::Progress {
+            CoordinatorCall::Progress => CoordinatorReply::Progress {
                 completed: state.completed,
                 total: state.total,
             },

@@ -55,7 +55,7 @@ pub async fn run_download(
         let cfg = config.clone();
 
         let entry = ChildEntry::new(
-            ChildSpec::new(format!("worker-{}", i)).restart(RestartType::Temporary),
+            ChildSpec::new(format!("worker-{i}")).restart(RestartType::Temporary),
             move || {
                 let coord = coord.clone();
                 let cl = cl.clone();
@@ -104,7 +104,7 @@ pub async fn run_download(
 
         let progress = coordinator
             .call(
-                crate::coordinator::CoordinatorCall::GetProgress,
+                crate::coordinator::CoordinatorCall::Progress,
                 std::time::Duration::from_secs(5),
             )
             .await;

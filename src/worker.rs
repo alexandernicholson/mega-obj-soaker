@@ -21,7 +21,7 @@ pub async fn worker_loop(
 
     loop {
         let reply = coordinator
-            .call(CoordinatorCall::GetTask, Duration::from_secs(5))
+            .call(CoordinatorCall::Task, Duration::from_secs(5))
             .await;
 
         match reply {

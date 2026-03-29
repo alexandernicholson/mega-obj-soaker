@@ -28,9 +28,7 @@ pub async fn create_s3_client(
     }
 
     let shared_config = config_loader.load().await;
-
     let s3_config_builder = S3ConfigBuilder::from(&shared_config).force_path_style(true);
-
     Client::from_conf(s3_config_builder.build())
 }
 
@@ -41,10 +39,7 @@ pub async fn list_objects(
     include_patterns: &[String],
     exclude_patterns: &[String],
 ) -> Vec<S3Object> {
-    info!(
-        "Listing objects in s3://{}/{}",
-        bucket, prefix
-    );
+    info!("Listing objects in s3://{bucket}/{prefix}");
 
     let mut objects = Vec::new();
     let mut continuation_token: Option<String> = None;
@@ -66,7 +61,7 @@ pub async fn list_objects(
                     if should_process_object(key, prefix, include_patterns, exclude_patterns) {
                         objects.push(S3Object {
                             key: key.to_string(),
-                            size: obj.size().unwrap_or(0) as u64,
+                            size: obj.size().unwrap_or(0).cast_unsigned(),
                             last_modified: obj
                                 .last_modified()
                                 .map(|dt: &aws_sdk_s3::primitives::DateTime| dt.secs()),
@@ -75,24 +70,22 @@ pub async fn list_objects(
                 }
 
                 if output.is_truncated() == Some(true) {
-                    continuation_token = output.next_continuation_token().map(|s| s.to_string());
+                    continuation_token =
+                        output.next_continuation_token().map(ToString::to_string);
                 } else {
                     break;
                 }
             }
             Err(e) => {
-                error!("Error listing objects: {}", e);
+                error!("Error listing objects: {e}");
                 break;
             }
         }
     }
 
     let total_size: u64 = objects.iter().map(|o| o.size).sum();
-    info!(
-        "Found {} objects with total size of {:.2} GB",
-        objects.len(),
-        total_size as f64 / (1024.0 * 1024.0 * 1024.0)
-    );
+    let total_gb = bytes_to_gb(total_size);
+    info!("Found {} objects with total size of {total_gb:.2} GB", objects.len());
 
     objects
 }
@@ -114,43 +107,44 @@ pub async fn download_object(
 
     let dest_path = Path::new(destination).join(relative_key);
 
-    if let Some(parent) = dest_path.parent() {
-        if let Err(e) = tokio::fs::create_dir_all(parent).await {
-            error!("Failed to create directory {:?}: {}", parent, e);
-            return 0;
-        }
+    if let Some(parent) = dest_path.parent()
+        && let Err(e) = tokio::fs::create_dir_all(parent).await
+    {
+        error!("Failed to create directory {parent:?}: {e}");
+        return 0;
     }
 
     // Check if file exists and is up-to-date
-    if dest_path.exists() {
-        if let Ok(metadata) = tokio::fs::metadata(&dest_path).await {
-            let local_size = metadata.len();
-            if local_size == obj.size {
-                if let Some(s3_mtime_secs) = obj.last_modified {
-                    if let Ok(local_mtime) = metadata.modified() {
-                        let local_secs = local_mtime
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64;
-                        if local_secs >= s3_mtime_secs {
-                            info!("File {} is up to date, skipping download", obj.key);
-                            return 0;
-                        }
-                        info!("File {} is outdated, re-downloading", obj.key);
+    if dest_path.exists()
+        && let Ok(metadata) = tokio::fs::metadata(&dest_path).await
+    {
+        let local_size = metadata.len();
+        if local_size == obj.size {
+            if let Some(s3_mtime_secs) = obj.last_modified {
+                if let Ok(local_mtime) = metadata.modified() {
+                    let local_secs = local_mtime
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                        .cast_signed();
+                    if local_secs >= s3_mtime_secs {
+                        info!("File {} is up to date, skipping download", obj.key);
+                        return 0;
                     }
-                } else {
-                    info!(
-                        "File {} exists with correct size, skipping download",
-                        obj.key
-                    );
-                    return 0;
+                    info!("File {} is outdated, re-downloading", obj.key);
                 }
             } else {
                 info!(
-                    "File {} exists but has incorrect size, resuming download",
+                    "File {} exists with correct size, skipping download",
                     obj.key
                 );
+                return 0;
             }
+        } else {
+            info!(
+                "File {} exists but has incorrect size, resuming download",
+                obj.key
+            );
         }
     }
 
@@ -163,29 +157,26 @@ pub async fn download_object(
                 if let Some(s3_mtime_secs) = obj.last_modified {
                     let ft = FileTime::from_unix_time(s3_mtime_secs, 0);
                     if let Err(e) = filetime::set_file_mtime(&dest_path, ft) {
-                        warn!("Failed to set mtime for {:?}: {}", dest_path, e);
+                        warn!("Failed to set mtime for {dest_path:?}: {e}");
                     }
                 } else {
                     let now = FileTime::now();
                     let _ = filetime::set_file_mtime(&dest_path, now);
                 }
 
-                info!(
-                    "Downloaded: s3://{}/{} to {:?}",
-                    bucket, obj.key, dest_path
-                );
+                info!("Downloaded: s3://{bucket}/{} to {dest_path:?}", obj.key);
                 return bytes;
             }
             Err(e) => {
                 retries += 1;
                 error!(
-                    "Error downloading {}: {}. Retry {}/{}",
-                    obj.key, e, retries, max_retries
+                    "Error downloading {}: {e}. Retry {retries}/{max_retries}",
+                    obj.key
                 );
                 if retries >= max_retries {
                     error!(
-                        "Failed to download {} after {} retries",
-                        obj.key, max_retries
+                        "Failed to download {} after {max_retries} retries",
+                        obj.key
                     );
                     return 0;
                 }
@@ -193,6 +184,11 @@ pub async fn download_object(
             }
         }
     }
+}
+
+#[expect(clippy::cast_precision_loss)]
+fn bytes_to_gb(bytes: u64) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0 * 1024.0)
 }
 
 async fn do_download(
